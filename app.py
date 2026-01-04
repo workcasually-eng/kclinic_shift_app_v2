@@ -138,43 +138,44 @@ def clear_data_cache():
 
 def save_data(sheet_name, df):
     """
-    スプレッドシート保存関数（修正版）
-    - 強制的に全データを文字列化してエラー回避
-    - ws.clear()を使わず上書きモードで安全化
+    スプレッドシート保存関数（リサイズ版）
+    - clear()を使わず、シートの行数をデータに合わせてカットします
+    - これにより「削除した行」が確実に消えます
     """
     ws, err = connect_sheet(sheet_name)
     if err: return False, err
     
     try:
-        # 1. データが空っぽじゃないか確認
+        # 1. データがない場合の安全策
         if df is None or df.empty:
-            return False, "保存するデータがありません"
+            # データが空なら、ヘッダーだけ残すか、1行にする
+            return False, "データが空です"
 
-        # 2. 全データを強制的に「文字列」に変換
-        # これで日付(datetime)型が原因のエラーを100%防ぎます
+        # 2. 全データを「文字列」に変換（エラー防止の要）
         upload_df = df.astype(str)
         
-        # 3. リスト形式（スプレッドシート用）に変換
-        # ヘッダー（1行目）と中身（2行目以降）を合体
+        # 3. リスト形式に変換
         upload_data = [upload_df.columns.tolist()] + upload_df.values.tolist()
         
-        # 4. 書き込み実行
-        # gspreadのバージョン違いによるエラーを防ぐため、引数を明示します
+        # 4. 行数をデータに合わせて変更（リサイズ）
+        # これが「clear」の代わりになります。
+        # データが5行ならシートも5行になり、6行目以降（削除したデータ）は消えます。
+        new_row_count = len(upload_data)
+        ws.resize(rows=new_row_count)
+        
+        # 5. データを上書き
         try:
-            # 最新版(v6.0~)と旧版の両方に対応しやすい書き方
             ws.update(range_name='A1', values=upload_data)
         except TypeError:
-            # 古い書き方でのリトライ
             ws.update('A1', upload_data)
-        except Exception as e_inner:
-            # 書き込みそのものが失敗した場合
-            return False, f"書き込みエラー: {e_inner}"
             
         clear_data_cache()
         return True, "保存完了"
 
     except Exception as e:
-        return False, f"予期せぬエラー: {e}"
+        return False, f"保存エラー: {e}"
+
+
 def clear_sheet_data(sheet_name):
     """シートの中身を完全に消去する"""
     ws, err = connect_sheet(sheet_name)
