@@ -137,24 +137,27 @@ def clear_data_cache():
     load_data.clear()
 
 def save_data(sheet_name, df):
-    """DataFrameの内容でスプレッドシートを保存する"""
+    """DataFrameの内容でスプレッドシートを全上書きする"""
     ws, err = connect_sheet(sheet_name)
     if err: return False, err
     
     try:
-        upload_df = df.fillna("")
-        upload_data = [upload_df.columns.tolist()] + upload_df.values.tolist()
+        ws.clear()
+        # 【修正ポイント】書き込み前にすべてのデータを文字列（str）に変換する
+        # これにより日付データなどが原因でエラーになるのを防ぎます
+        upload_df = df.astype(str).replace("None", "").replace("nan", "")
         
-        # ws.clear() を使わずに、A1からデータを上書きする
-        # ※データ量が減った場合に古いデータが残らないよう、念のため全域更新
-        ws.update(upload_data, 'A1') 
+        upload_data = [upload_df.columns.tolist()] + upload_df.values.tolist()
+        try:
+            ws.update(values=upload_data, range_name='A1')
+        except TypeError:
+            ws.update('A1', upload_data)
         
         clear_data_cache()
         return True, "保存完了"
     except Exception as e:
-        st.error(f"保存失敗のエラー詳細: {e}") # 画面にエラーを表示
+        # エラーが起きたら内容を返す
         return False, str(e)
-
 
 def clear_sheet_data(sheet_name):
     """シートの中身を完全に消去する"""
@@ -881,14 +884,21 @@ def admin_screen():
                 st.session_state.master_staff = edited_s
                 st.success("保存完了")
 
+        # --- 公休マスタの保存部分（admin_screen内） ---
         with c2:
             st.subheader("㊗️ 公休マスタ")
             if ph_df is None: ph_df = pd.DataFrame(columns=['date','name'])
             edited_p = st.data_editor(ph_df, num_rows="dynamic", key="p_ed")
+            
             if st.button("公休情報をクラウドに保存"):
-                save_data("公休マスタ", edited_p)
-                st.session_state.master_ph = edited_p
-                st.success("保存完了")
+                # 【修正ポイント】結果を res と msg に受け取る
+                res, msg = save_data("公休マスタ", edited_p)
+                if res:
+                    st.session_state.master_ph = edited_p
+                    st.success("クラウドへの保存が成功しました！")
+                else:
+                    # 失敗した場合はエラー内容を赤文字で表示する
+                    st.error(f"保存に失敗しました: {msg}")
         
         st.divider()
         st.subheader(f"📥 申請状況 ({year}年{month}月)")
