@@ -62,22 +62,25 @@ if 'daily_reqs' not in st.session_state: st.session_state.daily_reqs = {}
 # =========================================================
 # 🛠️ ヘルパー関数 (GSheet操作一元化 + キャッシュ対応)
 # =========================================================
+# --- ヘルパー関数を修正 ---
 def get_gspread_client():
     scope = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-    creds = None
-    try:
-        if "gcp_service_account" in st.secrets:
-            key_dict = dict(st.secrets["gcp_service_account"])
-            creds = Credentials.from_service_account_info(key_dict, scopes=scope)
-    except: pass
-
-    if creds is None and os.path.exists('secret_key.json'):
-        creds = Credentials.from_service_account_file('secret_key.json', scopes=scope)
     
-    if creds:
-        return gspread.authorize(creds)
+    if "gcp_service_account" in st.secrets:
+        key_dict = dict(st.secrets["gcp_service_account"])
+        # 【重要】ここを追加：文字としての \n を 本物の改行に変換
+        if "private_key" in key_dict:
+            key_dict["private_key"] = key_dict["private_key"].replace("\\n", "\n")
+        
+        try:
+            creds = Credentials.from_service_account_info(key_dict, scopes=scope)
+            return gspread.authorize(creds)
+        except Exception as e:
+            st.error(f"認証エラーの詳細: {e}") # エラーを表示するように変更
+            return None
+    
     return None
-
+    
 def connect_sheet(sheet_name, headers=None):
     """シートに接続、なければ作成する。リトライ処理付き"""
     client = get_gspread_client()
@@ -134,26 +137,24 @@ def clear_data_cache():
     load_data.clear()
 
 def save_data(sheet_name, df):
-    """DataFrameの内容でスプレッドシートを全上書きする"""
+    """DataFrameの内容でスプレッドシートを保存する"""
     ws, err = connect_sheet(sheet_name)
     if err: return False, err
     
     try:
-        # 【修正】データを強制的に文字列型に変換し、NaNやNoneを空文字にする
-        # これによりgspreadでの書き込みエラー（書き込み失敗によるデータ消失）を防ぐ
-        upload_df = df.astype(str).replace("nan", "").replace("None", "").fillna("")
+        upload_df = df.fillna("")
         upload_data = [upload_df.columns.tolist()] + upload_df.values.tolist()
-
-        ws.clear()
-        try:
-            ws.update(values=upload_data, range_name='A1')
-        except TypeError:
-            ws.update('A1', upload_data)
+        
+        # ws.clear() を使わずに、A1からデータを上書きする
+        # ※データ量が減った場合に古いデータが残らないよう、念のため全域更新
+        ws.update(upload_data, 'A1') 
         
         clear_data_cache()
         return True, "保存完了"
     except Exception as e:
+        st.error(f"保存失敗のエラー詳細: {e}") # 画面にエラーを表示
         return False, str(e)
+
 
 def clear_sheet_data(sheet_name):
     """シートの中身を完全に消去する"""
