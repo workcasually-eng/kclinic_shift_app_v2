@@ -137,28 +137,44 @@ def clear_data_cache():
     load_data.clear()
 
 def save_data(sheet_name, df):
-    """DataFrameの内容でスプレッドシートを全上書きする"""
+    """
+    スプレッドシート保存関数（修正版）
+    - 強制的に全データを文字列化してエラー回避
+    - ws.clear()を使わず上書きモードで安全化
+    """
     ws, err = connect_sheet(sheet_name)
     if err: return False, err
     
     try:
-        ws.clear()
-        # 【修正ポイント】書き込み前にすべてのデータを文字列（str）に変換する
-        # これにより日付データなどが原因でエラーになるのを防ぎます
-        upload_df = df.astype(str).replace("None", "").replace("nan", "")
+        # 1. データが空っぽじゃないか確認
+        if df is None or df.empty:
+            return False, "保存するデータがありません"
+
+        # 2. 全データを強制的に「文字列」に変換
+        # これで日付(datetime)型が原因のエラーを100%防ぎます
+        upload_df = df.astype(str)
         
+        # 3. リスト形式（スプレッドシート用）に変換
+        # ヘッダー（1行目）と中身（2行目以降）を合体
         upload_data = [upload_df.columns.tolist()] + upload_df.values.tolist()
-        try:
-            ws.update(values=upload_data, range_name='A1')
-        except TypeError:
-            ws.update('A1', upload_data)
         
+        # 4. 書き込み実行
+        # gspreadのバージョン違いによるエラーを防ぐため、引数を明示します
+        try:
+            # 最新版(v6.0~)と旧版の両方に対応しやすい書き方
+            ws.update(range_name='A1', values=upload_data)
+        except TypeError:
+            # 古い書き方でのリトライ
+            ws.update('A1', upload_data)
+        except Exception as e_inner:
+            # 書き込みそのものが失敗した場合
+            return False, f"書き込みエラー: {e_inner}"
+            
         clear_data_cache()
         return True, "保存完了"
-    except Exception as e:
-        # エラーが起きたら内容を返す
-        return False, str(e)
 
+    except Exception as e:
+        return False, f"予期せぬエラー: {e}"
 def clear_sheet_data(sheet_name):
     """シートの中身を完全に消去する"""
     ws, err = connect_sheet(sheet_name)
