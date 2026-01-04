@@ -139,9 +139,12 @@ def save_data(sheet_name, df):
     if err: return False, err
     
     try:
-        ws.clear()
-        upload_df = df.fillna("")
+        # 【修正】データを強制的に文字列型に変換し、NaNやNoneを空文字にする
+        # これによりgspreadでの書き込みエラー（書き込み失敗によるデータ消失）を防ぐ
+        upload_df = df.astype(str).replace("nan", "").replace("None", "").fillna("")
         upload_data = [upload_df.columns.tolist()] + upload_df.values.tolist()
+
+        ws.clear()
         try:
             ws.update(values=upload_data, range_name='A1')
         except TypeError:
